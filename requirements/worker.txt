@@ -1,0 +1,13 @@
+# Worker PC (DGX Spark, aarch64, Python 3.12): IsaacLab 3.0.0 wheel, Newton physics (no Isaac Sim).
+#
+#   uv venv --python 3.12 .venv
+#   uv pip install --python .venv -r requirements/worker.txt --index-strategy unsafe-best-match
+
+--extra-index-url https://pypi.nvidia.com
+--extra-index-url https://download.pytorch.org/whl/cu130
+
+isaaclab[rsl-rl]==3.0.0   # one wheel with isaaclab_rl, isaaclab_tasks, ...; rsl-rl-lib==5.5.1
+torch==2.11.0
+torchvision==0.26.0
+pyyaml
+cffi                      # int2dds (used from source via PYTHONPATH, so its deps are not pulled in)

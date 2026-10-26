@@ -1,0 +1,59 @@
+// Messages exchanged between the Worker (simulation) and the Learner (training).
+// Arrays are flattened row-major; shapes come from configs/*.yaml.
+// worker_id is always 0 for now; it is there so more Workers can be added without
+// changing the message layout.
+// Regenerate types.py with:
+//   int2dds-idl -p rl_split/comm/types.py rl_split/comm/rl_split.idl
+module rl_split {
+
+  // L -> W. command: "start" | "stop". args_json carries command arguments.
+  struct Ctrl {
+    long seq;
+    string command;
+    string args_json;
+  };
+
+  // Central mode, W -> L. step_id 0 is the initial observation (rewards etc. unused).
+  struct CentralObs {
+    long worker_id;
+    long long step_id;
+    sequence<float> obs;          // num_envs * obs_dim
+    sequence<float> rewards;      // num_envs
+    sequence<octet> dones;        // num_envs
+    sequence<octet> time_outs;    // num_envs
+    string log_json;              // extras["log"] as {key: float}
+  };
+
+  // Central mode, L -> W. Actions for the observation with the same step_id.
+  struct CentralAction {
+    long worker_id;
+    long long step_id;
+    sequence<float> actions;      // num_envs * action_dim
+  };
+
+  // Local mode, W -> L. One rsl_rl Transition per env step.
+  struct LocalTransition {
+    long worker_id;
+    long iter;
+    long step_idx;
+    long policy_version;
+    sequence<float> obs;              // num_envs * obs_dim
+    sequence<float> actions;          // num_envs * action_dim
+    sequence<float> rewards;          // num_envs, after time-out bootstrapping
+    sequence<float> raw_rewards;      // num_envs, as returned by the env (for logging)
+    sequence<octet> dones;            // num_envs
+    sequence<float> values;           // num_envs
+    sequence<float> actions_log_prob; // num_envs
+    sequence<float> dist_params;      // num_dist_params * num_envs * action_dim
+    long num_dist_params;
+    string log_json;
+    sequence<float> last_obs;         // num_envs * obs_dim on the last step, empty otherwise
+  };
+
+  // Local mode, L -> W. Actor and critic state_dicts flattened in name order.
+  struct LocalWeights {
+    long version;
+    sequence<string> names;
+    sequence<float> data;
+  };
+};

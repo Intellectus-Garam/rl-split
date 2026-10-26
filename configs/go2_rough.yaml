@@ -1,0 +1,88 @@
+# Go2 rough-terrain PPO, shared by the Worker and the Learner.
+# Both sides must read the same file.
+
+env:
+  task: Isaac-Velocity-Rough-UnitreeGo2
+  num_envs: 4096
+  obs_group: policy        # the only group used by actor and critic (agent.obs_groups)
+  obs_dim: 235
+  action_dim: 12
+  max_episode_length: 1000 # episode_length_s 20 / (sim.dt 0.005 * decimation 4)
+
+dds:
+  domain_id: 77
+  transport: udp           # INT2DDS_TRANSPORT (an INT2DDS_* env var set in the shell takes precedence)
+  # INT2DDS_UDP_SOCKET_BUFFER (bytes, send and receive). Linux caps it at net.core.rmem_max /
+  # wmem_max (4MB on Spark) and then doubles it. Larger values need the sysctl raised first.
+  udp_socket_buffer: 4194304
+
+agent:
+  seed: 42
+  device: cuda:0
+  num_steps_per_env: 24
+  init_at_random_ep_len: true
+  max_iterations: 1500
+  empirical_normalization: {}
+  obs_groups:
+    actor:
+    - policy
+    critic:
+    - policy
+  clip_actions: null
+  check_for_nan: true
+  save_interval: 50
+  experiment_name: unitree_go2_rough
+  run_name: ''
+  logger: tensorboard
+  neptune_project: isaaclab
+  wandb_project: isaaclab
+  resume: false
+  load_run: .*
+  load_checkpoint: model_.*.pt
+  class_name: OnPolicyRunner
+  actor:
+    class_name: MLPModel
+    hidden_dims:
+    - 512
+    - 256
+    - 128
+    activation: elu
+    obs_normalization: false
+    distribution_cfg:
+      class_name: GaussianDistribution
+      init_std: 1.0
+      std_type: scalar
+      std_range:
+      - 1.0e-06
+      - 1000000.0
+  critic:
+    class_name: MLPModel
+    hidden_dims:
+    - 512
+    - 256
+    - 128
+    activation: elu
+    obs_normalization: false
+    distribution_cfg: null
+  algorithm:
+    class_name: PPO
+    num_learning_epochs: 5
+    num_mini_batches: 4
+    learning_rate: 0.001
+    schedule: adaptive
+    gamma: 0.99
+    lam: 0.95
+    entropy_coef: 0.01
+    desired_kl: 0.01
+    max_grad_norm: 1.0
+    optimizer: adam
+    value_loss_coef: 1.0
+    use_clipped_value_loss: true
+    clip_param: 0.2
+    normalize_advantage_per_mini_batch: false
+    share_cnn_encoders: false
+    use_mixed_precision: false
+    rnd_cfg: null
+    symmetry_cfg: null
+  torch_compile_mode: null
+  policy: {}
