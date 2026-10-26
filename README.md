@@ -47,11 +47,11 @@ int2dds finds `<path-to-int2DDS>/target/release/libint2dds_ffi.so` on its own (n
 
 ## Run
 
-Start in any order (the Learner waits up to 10 min for the Worker). Both use the same `--mode`.
+Start in any order (the Learner waits up to 10 min for the Worker). Both use the same `--mode`, each in its own venv.
 
 ```bash
-.venv/bin/python scripts/worker.py --mode central     # or local
-python scripts/learner.py --mode central
+python3 scripts/worker.py --mode central     # or local
+python3 scripts/learner.py --mode central
 ```
 
 Logs and checkpoints go to `logs/rsl_rl/<experiment>/<time>_<mode>/`.
