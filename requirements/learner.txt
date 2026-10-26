@@ -2,14 +2,13 @@
 #
 # Install order:
 #   1) pip install torch==2.8.0 --index-url https://pypi.jetson-ai-lab.io/jp6/cu126
-#   2) pip install -r requirements-learner.txt
+#   2) pip install -r requirements/learner.txt
 #
 # Prerequisite: sudo apt install cuda-cupti-12-6  (torch needs libcupti.so.12)
 
 torch==2.8.0          # pin the Jetson build from step 1 so pip does not replace it with a generic wheel
 numpy<2               # Jetson torch 2.8 is built against NumPy 1.x
-ml-dtypes<0.6         # 0.6 requires numpy>=2
+ml-dtypes<0.6         # pulled in by onnx (rsl-rl dep); 0.6 requires numpy>=2
 rsl-rl-lib==5.5.1     # same version as IsaacLab (pyproject.toml)
-pyzmq
-msgpack
-
+pyyaml
+cffi                  # int2dds (used from source via PYTHONPATH, so its deps are not pulled in)
