@@ -8,7 +8,7 @@ from rsl_rl.env import VecEnv
 from tensordict import TensorDict
 
 from rl_split.comm import types as msg
-from rl_split.comm.convert import flat, log_from_json, to_torch
+from rl_split.comm.convert import flat, fmt_bytes, log_from_json, payload_bytes, to_torch
 from rl_split.session import CtrlSender, wait_worker
 
 OBS_TIMEOUT_S = 120.0
@@ -44,7 +44,7 @@ class RemoteEnv(VecEnv):
         wait_worker(self._node)
         self._ctrl.send("start", init_at_random_ep_len=init_at_random_ep_len)
         self._obs, *_ = self._receive(0)
-        print("[learner] received initial observation")
+        print(f"[learner] received obs 0 ({fmt_bytes(self._last_bytes)}, initial observation)")
 
     def _receive(self, step_id: int):
         sample = self._obs_in.get(timeout=OBS_TIMEOUT_S)
@@ -52,6 +52,7 @@ class RemoteEnv(VecEnv):
             raise TimeoutError(f"no observation for step {step_id} in {OBS_TIMEOUT_S}s")
         if sample.step_id != step_id:
             raise RuntimeError(f"expected observation {step_id}, got {sample.step_id}")
+        self._last_bytes = payload_bytes(sample)
         n, d = self.num_envs, self.device
         obs = TensorDict(
             {self._config.env["obs_group"]: to_torch(sample.obs, np.float32, (n, self._config.obs_dim), d)},
@@ -69,9 +70,14 @@ class RemoteEnv(VecEnv):
         return self._obs
 
     def step(self, actions: torch.Tensor):
-        self._node.write("central_action", msg.CentralAction(step_id=self._step_id, actions=flat(actions)))
+        sample = msg.CentralAction(step_id=self._step_id, actions=flat(actions))
+        self._node.write("central_action", sample)
         self._step_id += 1
         self._obs, rewards, dones, extras = self._receive(self._step_id)
+        print(
+            f"[learner] step {self._step_id}: sent action {self._step_id - 1} ({fmt_bytes(payload_bytes(sample))}), "
+            f"received obs {self._step_id} ({fmt_bytes(self._last_bytes)})"
+        )
         return self._obs, rewards, dones, extras
 
     def close(self) -> None:

@@ -8,7 +8,7 @@ import numpy as np
 import torch
 
 from rl_split.comm import types as msg
-from rl_split.comm.convert import flat, log_to_json, to_torch
+from rl_split.comm.convert import flat, fmt_bytes, log_to_json, payload_bytes, to_torch
 from rl_split.session import stop_requested, wait_start
 
 
@@ -35,11 +35,12 @@ def run(env, node, cfg) -> None:
     node.wait_matched(timeout=60.0)
     if args.get("init_at_random_ep_len"):
         env.episode_length_buf = torch.randint_like(env.episode_length_buf, high=int(env.max_episode_length))
-    node.write("central_obs", _obs_msg(0, env.get_observations()[obs_group]))
-    print("[worker] started (central)")
+    sample = _obs_msg(0, env.get_observations()[obs_group])
+    node.write("central_obs", sample)
+    print(f"[worker] started (central), sent obs 0 ({fmt_bytes(payload_bytes(sample))})")
 
     step_id = 0
-    t_env = t_wait = 0.0
+    t_wait = 0.0
     while True:
         t0 = time.perf_counter()
         action = actions_in.get(timeout=1.0)
@@ -54,13 +55,15 @@ def run(env, node, cfg) -> None:
         with torch.inference_mode():
             obs, rewards, dones, extras = env.step(actions)
         step_id += 1
-        node.write(
-            "central_obs",
-            _obs_msg(step_id, obs[obs_group], rewards, dones, extras["time_outs"], log_to_json(extras)),
-        )
+        sample = _obs_msg(step_id, obs[obs_group], rewards, dones, extras["time_outs"], log_to_json(extras))
+        node.write("central_obs", sample)
         t_wait += t1 - t0
-        t_env += time.perf_counter() - t1
+        line = (
+            f"[worker] step {step_id}: received action {step_id - 1} ({fmt_bytes(payload_bytes(action))}), "
+            f"env+send {time.perf_counter() - t1:.3f}s, sent obs {step_id} ({fmt_bytes(payload_bytes(sample))})"
+        )
         if step_id % cfg.num_steps == 0:
-            print(f"[worker] step {step_id}: env+send {t_env:.2f}s, waiting for actions {t_wait:.2f}s")
-            t_env = t_wait = 0.0
-    print("[worker] stop received")
+            line += f", waiting for actions {t_wait:.2f}s"
+            t_wait = 0.0
+        print(line)
+    print("[worker] received ctrl 'stop'")

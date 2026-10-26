@@ -26,8 +26,11 @@ class Sender:
             try:
                 if job is None:
                     return
-                topic, make_sample = job
-                self._node.write(topic, make_sample())
+                topic, make_sample, log = job
+                sample = make_sample()
+                self._node.write(topic, sample)
+                if log is not None:
+                    print(log(sample))
             except BaseException as e:  # surfaced to the caller on the next put/flush
                 self._error = e
             finally:
@@ -37,9 +40,10 @@ class Sender:
         if self._error is not None:
             raise RuntimeError("sender thread failed") from self._error
 
-    def put(self, topic: str, make_sample) -> None:
+    def put(self, topic: str, make_sample, log=None) -> None:
+        """log(sample) -> str is printed after the sample has been written."""
         self._check()
-        self._jobs.put((topic, make_sample))
+        self._jobs.put((topic, make_sample, log))
 
     def flush(self) -> None:
         """Wait until every queued sample has been handed to DDS."""

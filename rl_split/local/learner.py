@@ -13,7 +13,7 @@ from rsl_rl.storage import RolloutStorage
 from tensordict import TensorDict
 
 from rl_split.comm import types as msg
-from rl_split.comm.convert import log_from_json, state_to_msg, to_torch
+from rl_split.comm.convert import fmt_bytes, log_from_json, payload_bytes, state_to_msg, to_torch
 from rl_split.session import CtrlSender, wait_worker
 
 TRANSITION_TIMEOUT_S = 120.0
@@ -58,7 +58,9 @@ class LocalLearnerRunner(OnPolicyRunner):
 
     def _publish_weights(self, version: int) -> None:
         names, data = state_to_msg({"actor": self.alg._raw_actor, "critic": self.alg._raw_critic})
-        self._node.write("local_weights", msg.LocalWeights(version=version, names=names, data=data))
+        sample = msg.LocalWeights(version=version, names=names, data=data)
+        self._node.write("local_weights", sample)
+        print(f"[learner] sent weights v{version} ({fmt_bytes(payload_bytes(sample))})")
 
     def _receive(self, it: int, step: int):
         t = self._transitions.get(timeout=TRANSITION_TIMEOUT_S)
@@ -66,6 +68,7 @@ class LocalLearnerRunner(OnPolicyRunner):
             raise TimeoutError(f"no transition {it}/{step} in {TRANSITION_TIMEOUT_S}s")
         if (t.iter, t.step_idx, t.policy_version) != (it, step, it):
             raise RuntimeError(f"expected transition {it}/{step} (policy {it}), got {t.iter}/{t.step_idx} (policy {t.policy_version})")
+        print(f"[learner] received transition {it}/{step} (policy v{t.policy_version}, {fmt_bytes(payload_bytes(t))})")
         return t
 
     def _to_transition(self, t) -> tuple[RolloutStorage.Transition, torch.Tensor, torch.Tensor, dict]:

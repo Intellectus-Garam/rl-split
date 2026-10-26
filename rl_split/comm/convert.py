@@ -26,6 +26,36 @@ def flat(t: torch.Tensor, dtype=np.float32) -> np.ndarray:
     return np.ascontiguousarray(t.detach().to("cpu").numpy().astype(dtype, copy=False).reshape(-1))
 
 
+# IDL kind code in _dds_type_info_fields -> element size (octet, long, unsigned long, float)
+_ELEM_BYTES = {1: 1, 5: 4, 6: 4, 11: 4}
+
+
+def payload_bytes(sample) -> int:
+    """Size of a message's field contents (no CDR header or padding). Reads lengths only, so it is cheap."""
+    total = 0
+    for kind, name, code, *_ in sample._dds_type_info_fields:
+        v = getattr(sample, name)
+        if isinstance(v, np.ndarray):
+            total += v.nbytes
+        elif isinstance(v, (bytes, bytearray, memoryview, str)):
+            total += len(v)
+        elif kind == "seq" and code == 13:  # sequence<string>
+            total += sum(len(s) for s in v)
+        elif kind == "seq":
+            total += len(v) * _ELEM_BYTES.get(code, 4)
+        else:
+            total += _ELEM_BYTES.get(code, 4)
+    return total
+
+
+def fmt_bytes(n: int) -> str:
+    if n < 1e3:
+        return f"{n}B"
+    if n < 1e6:
+        return f"{n / 1e3:.1f}KB"
+    return f"{n / 1e6:.2f}MB"
+
+
 def log_to_json(extras: dict) -> str:
     """extras["log"] (scalars or tensors) -> JSON {key: float}."""
     log = extras.get("log") or {}

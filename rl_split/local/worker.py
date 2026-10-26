@@ -9,7 +9,7 @@ import torch
 from rsl_rl.algorithms import PPO
 
 from rl_split.comm import types as msg
-from rl_split.comm.convert import flat, load_state_from_msg, log_to_json
+from rl_split.comm.convert import flat, fmt_bytes, load_state_from_msg, log_to_json, payload_bytes
 from rl_split.comm.sender import Sender
 from rl_split.session import stop_requested, wait_start
 
@@ -54,14 +54,19 @@ class StreamingStorage:
             log_json=self._log_json,
             last_obs=np.zeros(0, np.float32) if self._last_obs is None else self._last_obs,
         )
-        self._sender.put("local_transition", lambda: msg.LocalTransition(**sample))
+        self._sender.put(
+            "local_transition",
+            lambda: msg.LocalTransition(**sample),
+            log=lambda s: f"[worker] sent transition {s.iter}/{s.step_idx} (policy v{s.policy_version}, {fmt_bytes(payload_bytes(s))})",
+        )
         self.step_idx += 1
 
     def clear(self) -> None:
         self.step_idx = 0
 
 
-def _wait_weights(inbox, alg, version: int) -> None:
+def _wait_weights(inbox, alg, version: int) -> int:
+    """Load weights `version` and return the message size in bytes."""
     deadline = time.monotonic() + WEIGHTS_TIMEOUT_S
     while True:
         w = inbox.get(timeout=max(0.0, deadline - time.monotonic()))
@@ -69,7 +74,7 @@ def _wait_weights(inbox, alg, version: int) -> None:
             raise TimeoutError(f"no weights version {version} in {WEIGHTS_TIMEOUT_S}s")
         if w.version == version:
             load_state_from_msg({"actor": alg._raw_actor, "critic": alg._raw_critic}, w.names, w.data)
-            return
+            return payload_bytes(w)
         if w.version > version:
             raise RuntimeError(f"expected weights {version}, got {w.version}")
 
@@ -102,7 +107,7 @@ def run(env, node, cfg, device: str) -> None:
 
     for it in range(start_iter, start_iter + num_iterations):
         t0 = time.perf_counter()
-        _wait_weights(weights_in, alg, version=it)
+        weights_bytes = _wait_weights(weights_in, alg, version=it)
         t1 = time.perf_counter()
         storage.iter, storage.policy_version = it, it
         storage.clear()
@@ -114,7 +119,7 @@ def run(env, node, cfg, device: str) -> None:
                 storage.stage(rewards, extras, last_obs=obs if step == cfg.num_steps - 1 else None)
                 alg.process_env_step(obs, rewards, dones, extras)
         t2 = time.perf_counter()
-        print(f"[worker] iter {it}: waited for weights {t1 - t0:.2f}s, collected {t2 - t1:.2f}s")
+        print(f"[worker] iter {it}: received weights v{it} ({fmt_bytes(weights_bytes)}, waited {t1 - t0:.2f}s), collected {t2 - t1:.2f}s")
         if stop_requested(ctrl):
             break
 
@@ -123,4 +128,4 @@ def run(env, node, cfg, device: str) -> None:
     while not stop_requested(ctrl):
         time.sleep(0.1)
     sender.close()
-    print("[worker] stop received")
+    print("[worker] received ctrl 'stop'")
