@@ -44,7 +44,6 @@ class RemoteEnv(VecEnv):
         wait_worker(self._node)
         self._ctrl.send("start", init_at_random_ep_len=init_at_random_ep_len)
         self._obs, *_ = self._receive(0)
-        print(f"[learner] received obs 0 ({fmt_bytes(self._last_bytes)}, initial observation)")
 
     def _receive(self, step_id: int):
         sample = self._obs_in.get(timeout=OBS_TIMEOUT_S)
@@ -52,7 +51,7 @@ class RemoteEnv(VecEnv):
             raise TimeoutError(f"no observation for step {step_id} in {OBS_TIMEOUT_S}s")
         if sample.step_id != step_id:
             raise RuntimeError(f"expected observation {step_id}, got {sample.step_id}")
-        self._last_bytes = payload_bytes(sample)
+        print(f"[learner] sub central_obs step {step_id} ({fmt_bytes(payload_bytes(sample))})")
         n, d = self.num_envs, self.device
         obs = TensorDict(
             {self._config.env["obs_group"]: to_torch(sample.obs, np.float32, (n, self._config.obs_dim), d)},
@@ -72,12 +71,9 @@ class RemoteEnv(VecEnv):
     def step(self, actions: torch.Tensor):
         sample = msg.CentralAction(step_id=self._step_id, actions=flat(actions))
         self._node.write("central_action", sample)
+        print(f"[learner] pub central_action step {self._step_id} ({fmt_bytes(payload_bytes(sample))})")
         self._step_id += 1
         self._obs, rewards, dones, extras = self._receive(self._step_id)
-        print(
-            f"[learner] step {self._step_id}: sent action {self._step_id - 1} ({fmt_bytes(payload_bytes(sample))}), "
-            f"received obs {self._step_id} ({fmt_bytes(self._last_bytes)})"
-        )
         return self._obs, rewards, dones, extras
 
     def close(self) -> None:

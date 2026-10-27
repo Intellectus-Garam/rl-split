@@ -57,7 +57,7 @@ class StreamingStorage:
         self._sender.put(
             "local_transition",
             lambda: msg.LocalTransition(**sample),
-            log=lambda s: f"[worker] sent transition {s.iter}/{s.step_idx} (policy v{s.policy_version}, {fmt_bytes(payload_bytes(s))})",
+            log=lambda s: f"[worker] pub local_transition {s.iter}/{s.step_idx} policy v{s.policy_version} ({fmt_bytes(payload_bytes(s))})",
         )
         self.step_idx += 1
 
@@ -106,9 +106,8 @@ def run(env, node, cfg, device: str) -> None:
     print(f"[worker] started (local), {num_iterations} iterations")
 
     for it in range(start_iter, start_iter + num_iterations):
-        t0 = time.perf_counter()
         weights_bytes = _wait_weights(weights_in, alg, version=it)
-        t1 = time.perf_counter()
+        print(f"[worker] sub local_weights v{it} ({fmt_bytes(weights_bytes)})")
         storage.iter, storage.policy_version = it, it
         storage.clear()
         with torch.inference_mode():
@@ -118,8 +117,6 @@ def run(env, node, cfg, device: str) -> None:
                 obs, rewards, dones = obs.to(device), rewards.to(device), dones.to(device)
                 storage.stage(rewards, extras, last_obs=obs if step == cfg.num_steps - 1 else None)
                 alg.process_env_step(obs, rewards, dones, extras)
-        t2 = time.perf_counter()
-        print(f"[worker] iter {it}: received weights v{it} ({fmt_bytes(weights_bytes)}, waited {t1 - t0:.2f}s), collected {t2 - t1:.2f}s")
         if stop_requested(ctrl):
             break
 
@@ -128,4 +125,3 @@ def run(env, node, cfg, device: str) -> None:
     while not stop_requested(ctrl):
         time.sleep(0.1)
     sender.close()
-    print("[worker] received ctrl 'stop'")

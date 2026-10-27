@@ -31,7 +31,7 @@ class CtrlSender:
         self._seq += 1
         sample = msg.Ctrl(seq=self._seq, command=command, args_json=json.dumps(args))
         self._node.write("ctrl", sample)
-        print(f"[learner] sent ctrl {command!r} (seq {self._seq}, {fmt_bytes(payload_bytes(sample))})")
+        print(f"[learner] pub ctrl {command!r} seq {self._seq} ({fmt_bytes(payload_bytes(sample))})")
 
     def stop(self, linger: float = 2.0) -> None:
         """Send stop and give the reliable protocol time to deliver it before the process exits."""
@@ -44,14 +44,21 @@ def wait_start(inbox) -> dict:
     print("[worker] waiting for ctrl start from the learner")
     while True:
         ctrl = inbox.get()
+        _log_ctrl(ctrl)
         if ctrl.command == "start":
-            print(f"[worker] received ctrl 'start' (seq {ctrl.seq}, {fmt_bytes(payload_bytes(ctrl))}): {ctrl.args_json}")
             return json.loads(ctrl.args_json)
-        print(f"[worker] received ctrl {ctrl.command!r} (seq {ctrl.seq}), ignoring before start")
+        print(f"[worker] ignoring ctrl {ctrl.command!r} before start")
 
 
 def stop_requested(inbox) -> bool:
     ctrl = inbox.poll()
-    if ctrl is not None and ctrl.command != "stop":
-        print(f"[worker] received ctrl {ctrl.command!r} (seq {ctrl.seq}), ignoring")
-    return ctrl is not None and ctrl.command == "stop"
+    if ctrl is None:
+        return False
+    _log_ctrl(ctrl)
+    if ctrl.command != "stop":
+        print(f"[worker] ignoring ctrl {ctrl.command!r}")
+    return ctrl.command == "stop"
+
+
+def _log_ctrl(ctrl) -> None:
+    print(f"[worker] sub ctrl {ctrl.command!r} seq {ctrl.seq} ({fmt_bytes(payload_bytes(ctrl))}) {ctrl.args_json}")
