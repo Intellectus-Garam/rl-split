@@ -40,9 +40,8 @@ def run(env, node, cfg) -> None:
     print(f"[worker] started (central), sent obs 0 ({fmt_bytes(payload_bytes(sample))})")
 
     step_id = 0
-    t_wait = 0.0
+    t0 = time.perf_counter()  # reset only once an action arrives, so waits longer than the 1s poll are counted fully
     while True:
-        t0 = time.perf_counter()
         action = actions_in.get(timeout=1.0)
         if action is None:
             if stop_requested(ctrl):
@@ -57,13 +56,9 @@ def run(env, node, cfg) -> None:
         step_id += 1
         sample = _obs_msg(step_id, obs[obs_group], rewards, dones, extras["time_outs"], log_to_json(extras))
         node.write("central_obs", sample)
-        t_wait += t1 - t0
-        line = (
-            f"[worker] step {step_id}: received action {step_id - 1} ({fmt_bytes(payload_bytes(action))}), "
+        print(
+            f"[worker] step {step_id}: waited {t1 - t0:.3f}s, received action {step_id - 1} ({fmt_bytes(payload_bytes(action))}), "
             f"env+send {time.perf_counter() - t1:.3f}s, sent obs {step_id} ({fmt_bytes(payload_bytes(sample))})"
         )
-        if step_id % cfg.num_steps == 0:
-            line += f", waiting for actions {t_wait:.2f}s"
-            t_wait = 0.0
-        print(line)
+        t0 = time.perf_counter()
     print("[worker] received ctrl 'stop'")

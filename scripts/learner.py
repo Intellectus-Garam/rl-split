@@ -13,6 +13,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from rl_split import timestamp
+
+timestamp.install()
+
 import torch
 from rsl_rl.runners import OnPolicyRunner
 
