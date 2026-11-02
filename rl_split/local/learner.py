@@ -46,18 +46,20 @@ class LocalLearnerRunner(OnPolicyRunner):
     """OnPolicyRunner whose rollout phase reads transitions from DDS instead of stepping an env.
 
     The Workers' envs are stacked in worker_id order into one batch of num_workers * env.num_envs.
+    ctrl is owned by the caller, which sends "stop" on exit.
     Everything else (PPO construction, update, Logger, save/load and the checkpoint format) is inherited.
     """
 
-    def __init__(self, node, cfg, num_workers: int, agent: dict, log_dir: str | None, device: str) -> None:
+    def __init__(
+        self, node, cfg, num_workers: int, ctrl: CtrlSender, agent: dict, log_dir: str | None, device: str
+    ) -> None:
         super().__init__(SpecEnv(cfg, num_workers * cfg.num_envs, device), agent, log_dir=log_dir, device=device)
         self._node = node
         self._config = cfg
         self._num_workers = num_workers
         self._transitions = [node.inbox(per_worker("local_transition", w)) for w in range(num_workers)]
         node.writer("local_weights", num_readers=num_workers)
-        node.writer("ctrl", num_readers=num_workers)
-        self._ctrl = CtrlSender(node)
+        self._ctrl = ctrl
 
     def _publish_weights(self, version: int) -> None:
         names, data = state_to_msg({"actor": self.alg._raw_actor, "critic": self.alg._raw_critic})
@@ -123,47 +125,44 @@ class LocalLearnerRunner(OnPolicyRunner):
         total_it = start_it + num_learning_iterations
         num_steps = self.cfg["num_steps_per_env"]
         group = self._config.env["obs_group"]
-        try:
-            for it in range(start_it, total_it):
-                start = time.time()
-                # Rollout: the Worker collects with weights version `it` and streams each step.
-                with torch.inference_mode():
-                    for step in range(num_steps):
-                        samples = self._receive(it, step)
-                        tr, raw_rewards, dones, extras = self._to_transition(samples)
-                        self.alg.storage.add_transition(tr)
-                        self.logger.process_env_step(raw_rewards, dones, extras, None)
-                    obs_dim = self._config.obs_dim
-                    last_obs = TensorDict(
-                        {group: self._cat(samples, "last_obs", np.float32, lambda m: (m, obs_dim))},
-                        batch_size=[self.env.num_envs],
-                    )
-                    stop = time.time()
-                    collect_time = stop - start
-                    start = stop
-                    self.alg.compute_returns(last_obs)
-
-                loss_dict = self.alg.update()
-                self._publish_weights(it + 1)
-                stop = time.time()
-                learn_time = stop - start
-                self.current_learning_iteration = it
-
-                self.logger.log(
-                    it=it,
-                    start_it=start_it,
-                    total_it=total_it,
-                    collect_time=collect_time,
-                    learn_time=learn_time,
-                    loss_dict=loss_dict,
-                    learning_rate=self.alg.learning_rate,
-                    action_std=self.alg.get_policy().output_std,
-                    rnd_weight=None,
+        for it in range(start_it, total_it):
+            start = time.time()
+            # Rollout: the Worker collects with weights version `it` and streams each step.
+            with torch.inference_mode():
+                for step in range(num_steps):
+                    samples = self._receive(it, step)
+                    tr, raw_rewards, dones, extras = self._to_transition(samples)
+                    self.alg.storage.add_transition(tr)
+                    self.logger.process_env_step(raw_rewards, dones, extras, None)
+                obs_dim = self._config.obs_dim
+                last_obs = TensorDict(
+                    {group: self._cat(samples, "last_obs", np.float32, lambda m: (m, obs_dim))},
+                    batch_size=[self.env.num_envs],
                 )
-                if self.logger.writer is not None and it % self.cfg["save_interval"] == 0:
-                    self.save(os.path.join(self.logger.log_dir, f"model_{it}.pt"))
-        finally:
-            self._ctrl.stop()
+                stop = time.time()
+                collect_time = stop - start
+                start = stop
+                self.alg.compute_returns(last_obs)
+
+            loss_dict = self.alg.update()
+            self._publish_weights(it + 1)
+            stop = time.time()
+            learn_time = stop - start
+            self.current_learning_iteration = it
+
+            self.logger.log(
+                it=it,
+                start_it=start_it,
+                total_it=total_it,
+                collect_time=collect_time,
+                learn_time=learn_time,
+                loss_dict=loss_dict,
+                learning_rate=self.alg.learning_rate,
+                action_std=self.alg.get_policy().output_std,
+                rnd_weight=None,
+            )
+            if self.logger.writer is not None and it % self.cfg["save_interval"] == 0:
+                self.save(os.path.join(self.logger.log_dir, f"model_{it}.pt"))
 
         if self.logger.writer is not None:
             self.save(os.path.join(self.logger.log_dir, f"model_{self.current_learning_iteration}.pt"))

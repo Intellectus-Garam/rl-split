@@ -12,7 +12,7 @@ from rl_split.comm import types as msg
 from rl_split.comm.convert import flat, fmt_bytes, load_state_from_msg, log_to_json, payload_bytes
 from rl_split.comm.sender import Sender
 from rl_split.comm.node import per_worker
-from rl_split.session import stop_requested, wait_start
+from rl_split.session import StopRequested, check_stop, wait_start
 
 WEIGHTS_TIMEOUT_S = 600.0
 
@@ -69,13 +69,16 @@ class StreamingStorage:
         self.step_idx = 0
 
 
-def _wait_weights(inbox, alg, version: int) -> int:
-    """Load weights `version` and return the message size in bytes."""
+def _wait_weights(inbox, ctrl, alg, version: int) -> int:
+    """Load weights `version` and return the message size in bytes. Checks ctrl "stop" every second."""
     deadline = time.monotonic() + WEIGHTS_TIMEOUT_S
     while True:
-        w = inbox.get(timeout=max(0.0, deadline - time.monotonic()))
+        w = inbox.get(timeout=min(1.0, max(0.0, deadline - time.monotonic())))
+        check_stop(ctrl)
         if w is None:
-            raise TimeoutError(f"no weights version {version} in {WEIGHTS_TIMEOUT_S}s")
+            if time.monotonic() >= deadline:
+                raise TimeoutError(f"no weights version {version} in {WEIGHTS_TIMEOUT_S}s")
+            continue
         if w.version == version:
             load_state_from_msg({"actor": alg._raw_actor, "critic": alg._raw_critic}, w.names, w.data)
             return payload_bytes(w)
@@ -84,8 +87,16 @@ def _wait_weights(inbox, alg, version: int) -> int:
 
 
 def run(env, node, cfg, device: str, worker_id: int) -> None:
-    obs_group = cfg.env["obs_group"]
+    """Collect rollouts until ctrl "stop", which may come at any point (also before "start")."""
     ctrl = node.inbox("ctrl")
+    try:
+        _collect(env, node, cfg, device, worker_id, ctrl)
+    except StopRequested:
+        print("[worker] stopped by the learner")
+
+
+def _collect(env, node, cfg, device: str, worker_id: int, ctrl) -> None:
+    obs_group = cfg.env["obs_group"]
     weights_in = node.inbox("local_weights")
     node.writer(per_worker("local_transition", worker_id))
 
@@ -109,23 +120,25 @@ def run(env, node, cfg, device: str, worker_id: int) -> None:
     obs = env.get_observations().to(device)
     print(f"[worker] started (local), worker {worker_id}, {num_iterations} iterations")
 
-    for it in range(start_iter, start_iter + num_iterations):
-        weights_bytes = _wait_weights(weights_in, alg, version=it)
-        print(f"[worker] sub local_weights v{it} ({fmt_bytes(weights_bytes)})")
-        storage.iter, storage.policy_version = it, it
-        storage.clear()
-        with torch.inference_mode():
-            for step in range(cfg.num_steps):
-                actions = alg.act(obs)
-                obs, rewards, dones, extras = env.step(actions.to(env.device))
-                obs, rewards, dones = obs.to(device), rewards.to(device), dones.to(device)
-                storage.stage(rewards, extras, last_obs=obs if step == cfg.num_steps - 1 else None)
-                alg.process_env_step(obs, rewards, dones, extras)
-        if stop_requested(ctrl):
-            break
+    try:
+        for it in range(start_iter, start_iter + num_iterations):
+            weights_bytes = _wait_weights(weights_in, ctrl, alg, version=it)
+            print(f"[worker] sub local_weights v{it} ({fmt_bytes(weights_bytes)})")
+            storage.iter, storage.policy_version = it, it
+            storage.clear()
+            with torch.inference_mode():
+                for step in range(cfg.num_steps):
+                    check_stop(ctrl)
+                    actions = alg.act(obs)
+                    obs, rewards, dones, extras = env.step(actions.to(env.device))
+                    obs, rewards, dones = obs.to(device), rewards.to(device), dones.to(device)
+                    storage.stage(rewards, extras, last_obs=obs if step == cfg.num_steps - 1 else None)
+                    alg.process_env_step(obs, rewards, dones, extras)
 
-    sender.flush()
-    print("[worker] all transitions sent, waiting for stop")
-    while not stop_requested(ctrl):
-        time.sleep(0.1)
-    sender.close()
+        sender.flush()
+        print("[worker] all transitions sent, waiting for stop")
+        while True:
+            check_stop(ctrl)
+            time.sleep(0.1)
+    finally:
+        sender.close()

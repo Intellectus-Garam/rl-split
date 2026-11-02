@@ -27,39 +27,34 @@ import torch
 
 from rl_split.comm.node import Node
 from rl_split.config import DEFAULT_CONFIG, Config
+from rl_split.session import CtrlSender, exit_on_signals
 
 
-def run_central(node, cfg, num_workers: int, device: str, num_iterations: int, update_time: float) -> None:
+def run_central(node, cfg, num_workers: int, ctrl, device: str, num_iterations: int, update_time: float) -> None:
     from rl_split.central.remote_env import RemoteEnv
 
-    env = RemoteEnv(node, cfg, num_workers, device)
-    try:
-        env.start(init_at_random_ep_len=False)
-        actions = torch.zeros(env.num_envs, env.num_actions, device=device)
-        for _ in range(num_iterations):
-            for _ in range(cfg.num_steps):
-                env.step(actions)
-            time.sleep(update_time)  # instead of compute_returns + alg.update()
-    finally:
-        env.close()
+    env = RemoteEnv(node, cfg, num_workers, ctrl, device)
+    env.start(init_at_random_ep_len=False)
+    actions = torch.zeros(env.num_envs, env.num_actions, device=device)
+    for _ in range(num_iterations):
+        for _ in range(cfg.num_steps):
+            env.step(actions)
+        time.sleep(update_time)  # instead of compute_returns + alg.update()
 
 
-def run_local(node, cfg, num_workers: int, device: str, num_iterations: int, update_time: float) -> None:
+def run_local(node, cfg, num_workers: int, ctrl, device: str, num_iterations: int, update_time: float) -> None:
     from rl_split.local.learner import LocalLearnerRunner
 
     # Builds PPO only so the weights message has the real names and size; it is never updated.
     agent = cfg.agent()
     agent["device"] = device
-    runner = LocalLearnerRunner(node, cfg, num_workers, agent, log_dir=None, device=device)
+    runner = LocalLearnerRunner(node, cfg, num_workers, ctrl, agent, log_dir=None, device=device)
     runner.start(num_iterations, init_at_random_ep_len=False)
-    try:
-        for it in range(num_iterations):
-            for step in range(cfg.num_steps):
-                runner._to_transition(runner._receive(it, step))  # also checks that the Workers' fields stack
-            time.sleep(update_time)  # instead of compute_returns + alg.update()
-            runner._publish_weights(it + 1)
-    finally:
-        runner._ctrl.stop()
+    for it in range(num_iterations):
+        for step in range(cfg.num_steps):
+            runner._to_transition(runner._receive(it, step))  # also checks that the Workers' fields stack
+        time.sleep(update_time)  # instead of compute_returns + alg.update()
+        runner._publish_weights(it + 1)
 
 
 def main() -> None:
@@ -77,13 +72,16 @@ def main() -> None:
     cfg = Config(args.config)
     device = args.device or cfg.agent()["device"]
 
+    exit_on_signals()
     node = Node(cfg.dds, "learner")
+    ctrl = CtrlSender(node, args.num_workers)
     try:
         if args.mode == "central":
-            run_central(node, cfg, args.num_workers, device, args.max_iterations, args.update_time)
+            run_central(node, cfg, args.num_workers, ctrl, device, args.max_iterations, args.update_time)
         else:
-            run_local(node, cfg, args.num_workers, device, args.max_iterations, args.update_time)
+            run_local(node, cfg, args.num_workers, ctrl, device, args.max_iterations, args.update_time)
     finally:
+        ctrl.stop()
         node.close()
 
 

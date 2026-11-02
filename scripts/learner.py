@@ -23,6 +23,7 @@ from rsl_rl.runners import OnPolicyRunner
 
 from rl_split.comm.node import Node
 from rl_split.config import DEFAULT_CONFIG, Config
+from rl_split.session import CtrlSender, exit_on_signals
 
 
 def set_mini_batches(agent: dict, cfg: Config, num_workers: int, override: int | None) -> dict:
@@ -75,27 +76,27 @@ def main() -> None:
     print(f"[learner] logging to {log_dir}")
     print(f"[learner] {run_info}")
 
+    exit_on_signals()
     node = Node(cfg.dds, "learner")
+    ctrl = CtrlSender(node, args.num_workers)
+    # Whatever ends the Learner (end of training, an error, Ctrl+C, SIGTERM/SIGHUP), the Workers get "stop".
     try:
+        agent["device"] = device
         if args.mode == "central":
             from rl_split.central.remote_env import RemoteEnv
 
-            env = RemoteEnv(node, cfg, args.num_workers, device)
-            try:
-                env.start(init_at_random_ep_len=agent["init_at_random_ep_len"])
-                agent["device"] = device
-                runner = OnPolicyRunner(env, agent, log_dir=str(log_dir), device=device)
-                # Episode lengths were already randomized on the Worker in start().
-                runner.learn(num_learning_iterations=num_iterations, init_at_random_ep_len=False)
-            finally:
-                env.close()
+            env = RemoteEnv(node, cfg, args.num_workers, ctrl, device)
+            env.start(init_at_random_ep_len=agent["init_at_random_ep_len"])
+            runner = OnPolicyRunner(env, agent, log_dir=str(log_dir), device=device)
+            # Episode lengths were already randomized on the Worker in start().
+            runner.learn(num_learning_iterations=num_iterations, init_at_random_ep_len=False)
         else:
             from rl_split.local.learner import LocalLearnerRunner
 
-            agent["device"] = device
-            runner = LocalLearnerRunner(node, cfg, args.num_workers, agent, log_dir=str(log_dir), device=device)
+            runner = LocalLearnerRunner(node, cfg, args.num_workers, ctrl, agent, log_dir=str(log_dir), device=device)
             runner.learn(num_learning_iterations=num_iterations, init_at_random_ep_len=agent["init_at_random_ep_len"])
     finally:
+        ctrl.stop()
         node.close()
 
 

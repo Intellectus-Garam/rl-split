@@ -8,7 +8,7 @@ import torch
 from rl_split.comm import types as msg
 from rl_split.comm.convert import flat, fmt_bytes, log_to_json, payload_bytes, to_torch
 from rl_split.comm.node import per_worker
-from rl_split.session import stop_requested, wait_start
+from rl_split.session import StopRequested, check_stop, wait_start
 
 
 def _obs_msg(
@@ -28,9 +28,17 @@ def _obs_msg(
 
 
 def run(env, node, cfg, worker_id: int) -> None:
+    """Serve the env until ctrl "stop", which may come at any point (also before "start")."""
+    ctrl = node.inbox("ctrl")
+    try:
+        _serve(env, node, cfg, worker_id, ctrl)
+    except StopRequested:
+        print("[worker] stopped by the learner")
+
+
+def _serve(env, node, cfg, worker_id: int, ctrl) -> None:
     obs_group = cfg.env["obs_group"]
     obs_topic = per_worker("central_obs", worker_id)
-    ctrl = node.inbox("ctrl")
     actions_in = node.inbox(per_worker("central_action", worker_id))
     node.writer(obs_topic)
 
@@ -46,9 +54,8 @@ def run(env, node, cfg, worker_id: int) -> None:
     step_id = 0
     while True:
         action = actions_in.get(timeout=1.0)
+        check_stop(ctrl)
         if action is None:
-            if stop_requested(ctrl):
-                break
             continue
         if (action.worker_id, action.step_id) != (worker_id, step_id):
             raise RuntimeError(

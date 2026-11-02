@@ -1,13 +1,18 @@
-"""Startup handshake shared by both modes.
+"""Startup handshake and shutdown shared by both modes.
 
 Workers are numbered 0 .. num_workers-1 (worker.py --worker_id) and all use env.num_envs.
-Worker: create its topics -> wait for ctrl "start" -> run -> stop on ctrl "stop".
-Learner: create every Worker's topics -> wait until all are matched -> send ctrl "start" -> ... -> send "stop".
+Worker: create its topics -> wait for ctrl "start" -> run. ctrl "stop" ends it at any point,
+including before "start" (check_stop / wait_start raise StopRequested).
+Learner: create every Worker's topics -> wait until all are matched -> send ctrl "start" -> ...
+The learner scripts send "stop" in a finally around everything after the Node is created, so
+it goes out on any exit Python sees (normal end, exception, Ctrl+C, SIGTERM, SIGHUP).
 """
 
 from __future__ import annotations
 
 import json
+import signal
+import sys
 import time
 
 from rl_split.comm import types as msg
@@ -30,10 +35,29 @@ def wait_workers(node, num_workers: int) -> None:
     print(f"[learner] {num_workers} worker(s) connected")
 
 
+def exit_on_signals() -> None:
+    """Make SIGINT, SIGTERM and SIGHUP raise, so finally blocks (and the ctrl "stop" in them) run.
+
+    SIGINT is set explicitly because a process started in the background by a non-interactive
+    shell (a script, nohup) starts with SIGINT ignored, and Python then keeps it ignored.
+    """
+
+    def _exit(signum, _frame):
+        print(f"[learner] got {signal.Signals(signum).name}, exiting")
+        sys.exit(128 + signum)
+
+    signal.signal(signal.SIGINT, signal.default_int_handler)
+    signal.signal(signal.SIGTERM, _exit)
+    signal.signal(signal.SIGHUP, _exit)
+
+
 class CtrlSender:
-    def __init__(self, node) -> None:
+    """Learner's ctrl writer. Every Worker reads it, so wait_matched waits for num_workers readers."""
+
+    def __init__(self, node, num_workers: int) -> None:
         self._node = node
         self._seq = 0
+        node.writer("ctrl", num_readers=num_workers)
 
     def send(self, command: str, **args) -> None:
         self._seq += 1
@@ -47,25 +71,30 @@ class CtrlSender:
         time.sleep(linger)
 
 
+class StopRequested(Exception):
+    """ctrl "stop" arrived. Raised from any Worker wait so the Worker ends at once."""
+
+
 def wait_start(inbox) -> dict:
-    """Block until ctrl "start" and return its arguments."""
+    """Block until ctrl "start" and return its arguments. Raises StopRequested on "stop"."""
     print("[worker] waiting for ctrl start from the learner")
     while True:
         ctrl = inbox.get()
         _log_ctrl(ctrl)
         if ctrl.command == "start":
             return json.loads(ctrl.args_json)
+        if ctrl.command == "stop":
+            raise StopRequested
         print(f"[worker] ignoring ctrl {ctrl.command!r} before start")
 
 
-def stop_requested(inbox) -> bool:
-    ctrl = inbox.poll()
-    if ctrl is None:
-        return False
-    _log_ctrl(ctrl)
-    if ctrl.command != "stop":
+def check_stop(inbox) -> None:
+    """Raise StopRequested if ctrl "stop" has arrived. Other commands are ignored."""
+    while (ctrl := inbox.poll()) is not None:
+        _log_ctrl(ctrl)
+        if ctrl.command == "stop":
+            raise StopRequested
         print(f"[worker] ignoring ctrl {ctrl.command!r}")
-    return ctrl.command == "stop"
 
 
 def _log_ctrl(ctrl) -> None:

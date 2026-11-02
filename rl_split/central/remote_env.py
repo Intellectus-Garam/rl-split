@@ -19,9 +19,10 @@ class RemoteEnv(VecEnv):
     """Looks like RslRlVecEnvWrapper to OnPolicyRunner; the simulation runs on the Workers.
 
     The Workers' envs are stacked in worker_id order into one batch of num_workers * env.num_envs.
+    ctrl is owned by the caller, which sends "stop" on exit.
     """
 
-    def __init__(self, node, cfg, num_workers: int, device: str) -> None:
+    def __init__(self, node, cfg, num_workers: int, ctrl: CtrlSender, device: str) -> None:
         self.cfg = cfg.env  # stored by the rsl_rl Logger
         self._config = cfg
         self._num_workers = num_workers
@@ -37,8 +38,7 @@ class RemoteEnv(VecEnv):
         self._obs_in = [node.inbox(per_worker("central_obs", w)) for w in range(num_workers)]
         for w in range(num_workers):
             node.writer(per_worker("central_action", w))
-        node.writer("ctrl", num_readers=num_workers)
-        self._ctrl = CtrlSender(node)
+        self._ctrl = ctrl
         self._step_id = 0
         self._obs = TensorDict(
             {cfg.env["obs_group"]: torch.zeros(self.num_envs, cfg.obs_dim, device=device)},
@@ -97,4 +97,4 @@ class RemoteEnv(VecEnv):
         return self._obs, rewards, dones, extras
 
     def close(self) -> None:
-        self._ctrl.stop()
+        pass  # "stop" is sent by the learner script, see rl_split/session.py
