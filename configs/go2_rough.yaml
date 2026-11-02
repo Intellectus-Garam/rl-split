@@ -3,7 +3,7 @@
 
 env:
   task: Isaac-Velocity-Rough-UnitreeGo2
-  num_envs: 4096
+  num_envs: 4096           # per Worker; also the env count agent.algorithm.num_mini_batches is set for
   obs_group: policy        # the only group used by actor and critic (agent.obs_groups)
   obs_dim: 235
   action_dim: 12
@@ -67,7 +67,7 @@ agent:
   algorithm:
     class_name: PPO
     num_learning_epochs: 5
-    num_mini_batches: 4
+    num_mini_batches: 4        # for one Worker; the Learner multiplies it by --num_workers (or uses --num_mini_batches)
     learning_rate: 0.001
     schedule: adaptive
     gamma: 0.99

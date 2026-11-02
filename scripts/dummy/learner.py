@@ -7,7 +7,7 @@ weights, waits for the iteration's transitions, and publishes the next weights.
 Message sizes and order match a real run.
 Use it with scripts/dummy/worker.py to test DDS without training.
 
-    PYTHONPATH=<path-to-int2DDS>/python python scripts/dummy/learner.py --mode central
+    PYTHONPATH=<path-to-int2DDS>/python python scripts/dummy/learner.py --mode central [--num_workers 2]
 """
 
 from __future__ import annotations
@@ -27,13 +27,12 @@ import torch
 
 from rl_split.comm.node import Node
 from rl_split.config import DEFAULT_CONFIG, Config
-from rl_split.session import wait_worker
 
 
-def run_central(node, cfg, device: str, num_iterations: int, update_time: float) -> None:
+def run_central(node, cfg, num_workers: int, device: str, num_iterations: int, update_time: float) -> None:
     from rl_split.central.remote_env import RemoteEnv
 
-    env = RemoteEnv(node, cfg, device)
+    env = RemoteEnv(node, cfg, num_workers, device)
     try:
         env.start(init_at_random_ep_len=False)
         actions = torch.zeros(env.num_envs, env.num_actions, device=device)
@@ -45,18 +44,18 @@ def run_central(node, cfg, device: str, num_iterations: int, update_time: float)
         env.close()
 
 
-def run_local(node, cfg, device: str, num_iterations: int, update_time: float) -> None:
+def run_local(node, cfg, num_workers: int, device: str, num_iterations: int, update_time: float) -> None:
     from rl_split.local.learner import LocalLearnerRunner
 
     # Builds PPO only so the weights message has the real names and size; it is never updated.
-    runner = LocalLearnerRunner(node, cfg, log_dir=None, device=device)
-    runner._publish_weights(0)
-    wait_worker(node)
-    runner._ctrl.send("start", num_iterations=num_iterations, start_iter=0, init_at_random_ep_len=False)
+    agent = cfg.agent()
+    agent["device"] = device
+    runner = LocalLearnerRunner(node, cfg, num_workers, agent, log_dir=None, device=device)
+    runner.start(num_iterations, init_at_random_ep_len=False)
     try:
         for it in range(num_iterations):
             for step in range(cfg.num_steps):
-                runner._receive(it, step)
+                runner._to_transition(runner._receive(it, step))  # also checks that the Workers' fields stack
             time.sleep(update_time)  # instead of compute_returns + alg.update()
             runner._publish_weights(it + 1)
     finally:
@@ -70,6 +69,9 @@ def main() -> None:
     parser.add_argument("--device", default=None, help="Tensor device (default: agent.device from the config).")
     parser.add_argument("--max_iterations", type=int, default=100)
     parser.add_argument("--update_time", type=float, default=2.0, help="Seconds to sleep in place of the PPO update.")
+    parser.add_argument(
+        "--num_workers", type=int, default=1, help="Workers to wait for; they must use --worker_id 0 .. num_workers-1."
+    )
     args = parser.parse_args()
 
     cfg = Config(args.config)
@@ -78,9 +80,9 @@ def main() -> None:
     node = Node(cfg.dds, "learner")
     try:
         if args.mode == "central":
-            run_central(node, cfg, device, args.max_iterations, args.update_time)
+            run_central(node, cfg, args.num_workers, device, args.max_iterations, args.update_time)
         else:
-            run_local(node, cfg, device, args.max_iterations, args.update_time)
+            run_local(node, cfg, args.num_workers, device, args.max_iterations, args.update_time)
     finally:
         node.close()
 

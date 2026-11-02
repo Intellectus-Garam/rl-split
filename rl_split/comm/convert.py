@@ -21,6 +21,13 @@ def to_torch(field, dtype, shape, device) -> torch.Tensor:
     return torch.from_numpy(to_np(field, dtype, shape)).to(device)
 
 
+def cat_torch(fields, dtype, shapes, device, axis: int = 0) -> torch.Tensor:
+    """One field from every Worker -> a single tensor, joined on the host so it is copied to device once."""
+    parts = [to_np(f, dtype, s) for f, s in zip(fields, shapes, strict=True)]
+    arr = parts[0] if len(parts) == 1 else np.concatenate(parts, axis=axis)
+    return torch.from_numpy(arr).to(device)
+
+
 def flat(t: torch.Tensor, dtype=np.float32) -> np.ndarray:
     """Tensor -> 1-D C-contiguous numpy array, the form int2dds copies as-is."""
     return np.ascontiguousarray(t.detach().to("cpu").numpy().astype(dtype, copy=False).reshape(-1))
@@ -64,6 +71,15 @@ def log_to_json(extras: dict) -> str:
 
 def log_from_json(text: str) -> dict:
     return json.loads(text) if text else {}
+
+
+def merge_logs(texts) -> dict:
+    """Every Worker's log_json -> one log, each key averaged over the Workers that have it."""
+    values: dict[str, list[float]] = {}
+    for text in texts:
+        for k, v in log_from_json(text).items():
+            values.setdefault(k, []).append(v)
+    return {k: sum(v) / len(v) for k, v in values.items()}
 
 
 def state_to_msg(models: dict[str, torch.nn.Module]) -> tuple[list[str], np.ndarray]:

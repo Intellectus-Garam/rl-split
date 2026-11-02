@@ -11,6 +11,7 @@ from rsl_rl.algorithms import PPO
 from rl_split.comm import types as msg
 from rl_split.comm.convert import flat, fmt_bytes, load_state_from_msg, log_to_json, payload_bytes
 from rl_split.comm.sender import Sender
+from rl_split.comm.node import per_worker
 from rl_split.session import stop_requested, wait_start
 
 WEIGHTS_TIMEOUT_S = 600.0
@@ -20,9 +21,11 @@ class StreamingStorage:
     """Stands in for RolloutStorage on the Worker: PPO.process_env_step hands each
     transition here, and it is published instead of stored."""
 
-    def __init__(self, sender: Sender, obs_group: str) -> None:
+    def __init__(self, sender: Sender, obs_group: str, worker_id: int) -> None:
         self._sender = sender
         self._obs_group = obs_group
+        self._worker_id = worker_id
+        self._topic = per_worker("local_transition", worker_id)
         self.iter = 0
         self.step_idx = 0
         self.policy_version = 0
@@ -39,6 +42,7 @@ class StreamingStorage:
     def add_transition(self, t) -> None:
         # Copy to host now: the env reuses its observation buffers on the next step.
         sample = dict(
+            worker_id=self._worker_id,
             iter=self.iter,
             step_idx=self.step_idx,
             policy_version=self.policy_version,
@@ -55,7 +59,7 @@ class StreamingStorage:
             last_obs=np.zeros(0, np.float32) if self._last_obs is None else self._last_obs,
         )
         self._sender.put(
-            "local_transition",
+            self._topic,
             lambda: msg.LocalTransition(**sample),
             log=lambda s: f"[worker] pub local_transition {s.iter}/{s.step_idx} policy v{s.policy_version} ({fmt_bytes(payload_bytes(s))})",
         )
@@ -79,11 +83,11 @@ def _wait_weights(inbox, alg, version: int) -> int:
             raise RuntimeError(f"expected weights {version}, got {w.version}")
 
 
-def run(env, node, cfg, device: str) -> None:
+def run(env, node, cfg, device: str, worker_id: int) -> None:
     obs_group = cfg.env["obs_group"]
     ctrl = node.inbox("ctrl")
     weights_in = node.inbox("local_weights")
-    node.writer("local_transition")
+    node.writer(per_worker("local_transition", worker_id))
 
     args = wait_start(ctrl)
     node.wait_matched(timeout=60.0)
@@ -96,14 +100,14 @@ def run(env, node, cfg, device: str) -> None:
     obs = env.get_observations().to(device)
     alg = PPO.construct_algorithm(obs, env, agent_cfg, device)
     sender = Sender(node)
-    storage = StreamingStorage(sender, obs_group)
+    storage = StreamingStorage(sender, obs_group, worker_id)
     alg.storage = storage
     alg.train_mode()
 
     if args.get("init_at_random_ep_len"):
         env.episode_length_buf = torch.randint_like(env.episode_length_buf, high=int(env.max_episode_length))
     obs = env.get_observations().to(device)
-    print(f"[worker] started (local), {num_iterations} iterations")
+    print(f"[worker] started (local), worker {worker_id}, {num_iterations} iterations")
 
     for it in range(start_iter, start_iter + num_iterations):
         weights_bytes = _wait_weights(weights_in, alg, version=it)

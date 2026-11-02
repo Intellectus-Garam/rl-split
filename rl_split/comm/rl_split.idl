@@ -1,7 +1,7 @@
-// Messages exchanged between the Worker (simulation) and the Learner (training).
-// Arrays are flattened row-major; shapes come from configs/*.yaml.
-// worker_id is always 0 for now; it is there so more Workers can be added without
-// changing the message layout.
+// Messages exchanged between the Workers (simulation) and the Learner (training).
+// Arrays are flattened row-major; shapes come from configs/*.yaml (num_envs is per Worker).
+// Per-Worker messages go on per-Worker topics (<topic>_<worker_id>, see comm/node.py);
+// worker_id is repeated in the message as a check.
 // Regenerate types.py with:
 //   int2dds-idl -p rl_split/comm/types.py rl_split/comm/rl_split.idl
 module rl_split {

@@ -26,7 +26,13 @@ class Config:
 
     @property
     def num_envs(self) -> int:
+        """Envs per Worker (default), and the env count num_mini_batches was tuned for."""
         return self.env["num_envs"]
+
+    def scaled_mini_batches(self, total_envs: int) -> int:
+        """num_mini_batches that keeps the config's mini-batch size for total_envs envs."""
+        base = self._agent["algorithm"]["num_mini_batches"]
+        return max(1, round(base * total_envs / self.num_envs))
 
     @property
     def obs_dim(self) -> int:

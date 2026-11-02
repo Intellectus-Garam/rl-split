@@ -2,29 +2,31 @@
 
 PPO training for IsaacLab Go2 rough terrain (`Isaac-Velocity-Rough-UnitreeGo2`, rsl_rl 5.5.1), split into two processes connected by int2DDS:
 
-- **Worker** (DGX Spark): runs the simulation.
+- **Worker** (DGX Spark): runs the simulation. There can be several.
 - **Learner** (Jetson Orin): runs PPO. No IsaacLab needed.
 
 Both sides read the same `configs/go2_rough.yaml`.
+
+Workers are numbered `0 .. num_workers-1` and each has its own `central_obs_<id>`, `central_action_<id>` and `local_transition_<id>` topics; `ctrl` and `local_weights` are shared. The Learner stacks the Workers' envs in `worker_id` order into one batch.
 
 ## Modes
 
 ### `central`: policy only on the Learner
 
-The Worker sends obs every step and gets actions back.
+Each Worker sends obs every step and gets its own slice of the actions back. The Learner waits for every Worker on every step.
 
 ```
-worker ── central_obs ────▶ learner      obs, rewards, dones (~3.9MB/step)
-worker ◀── central_action ── learner      actions (~0.2MB/step)
+worker ── central_obs ────▶ learner      obs, rewards, dones (~3.9MB/step per Worker)
+worker ◀── central_action ── learner      actions (~0.2MB/step per Worker)
 worker ◀── ctrl ──────────── learner      start / stop
 ```
 
 ### `local`: policy copy on the Worker
 
-The Worker collects 24 steps with its copy and streams them. The Learner updates and sends new weights.
+Each Worker collects 24 steps with its copy and streams them. The Learner updates on all Workers' steps and sends new weights to every Worker.
 
 ```
-worker ── local_transition ─▶ learner    rsl_rl Transition (~4.5MB × 24/iter)
+worker ── local_transition ─▶ learner    rsl_rl Transition (~4.5MB × 24/iter per Worker)
 worker ◀── local_weights ──── learner    actor + critic state_dict (latest only)
 worker ◀── ctrl ───────────── learner    start / stop
 ```
@@ -47,12 +49,25 @@ int2dds finds `<path-to-int2DDS>/target/release/libint2dds_ffi.so` on its own (n
 
 ## Run
 
-Start in any order (the Learner waits up to 10 min for the Worker). Both use the same `--mode`, each in its own venv.
+Start in any order (the Learner waits up to 10 min for the Workers). All use the same `--mode`, each in its own venv.
 
 ```bash
 python3 scripts/worker.py --mode central     # or local
 python3 scripts/learner.py --mode central
 ```
+
+Several Workers: number them `0 .. N-1` with `--worker_id` and tell the Learner `N`.
+
+```bash
+python3 scripts/worker.py --mode central --worker_id 0
+python3 scripts/worker.py --mode central --worker_id 1
+python3 scripts/learner.py --mode central --num_workers 2
+```
+
+- Every Worker runs `env.num_envs` envs from the config.
+- A Worker's seed is random (printed at startup) unless `--seed` is given. Give each Worker a different `--seed`.
+- The Learner multiplies `num_mini_batches` by `--num_workers`, so the mini-batch size stays as configured and the extra data becomes extra updates. `learner.py --num_mini_batches` sets it directly instead. The values used are printed at startup and saved to `params/run.yaml` in the log directory.
+- A `--worker_id` used twice stops the Learner with an error. A missing one makes it time out naming the unmatched topic.
 
 Logs and checkpoints go to `logs/rsl_rl/<experiment>/<time>_<mode>/`.
 

@@ -1,7 +1,8 @@
 """Startup handshake shared by both modes.
 
-Worker: wait for ctrl "start" -> run -> stop on ctrl "stop".
-Learner: wait for the Worker's readers -> send ctrl "start" -> ... -> send "stop".
+Workers are numbered 0 .. num_workers-1 (worker.py --worker_id) and all use env.num_envs.
+Worker: create its topics -> wait for ctrl "start" -> run -> stop on ctrl "stop".
+Learner: create every Worker's topics -> wait until all are matched -> send ctrl "start" -> ... -> send "stop".
 """
 
 from __future__ import annotations
@@ -12,14 +13,21 @@ import time
 from rl_split.comm import types as msg
 from rl_split.comm.convert import fmt_bytes, payload_bytes
 
-# The Worker can take minutes to bring up the simulation.
+# A Worker can take minutes to bring up the simulation.
 WORKER_TIMEOUT_S = 600.0
 
 
-def wait_worker(node) -> None:
-    """Block until the Worker has readers for every Learner writer, so "start" is not lost."""
-    print("[learner] waiting for the worker")
+def worker_rows(worker_id: int, num_envs: int) -> slice:
+    """Worker worker_id's rows in the Learner's batch, where the Workers' envs are stacked in worker_id order."""
+    return slice(worker_id * num_envs, (worker_id + 1) * num_envs)
+
+
+def wait_workers(node, num_workers: int) -> None:
+    """Learner: block until every Worker has readers for every Learner writer, so "start" reaches all of them."""
+    print(f"[learner] waiting for {num_workers} worker(s)")
     node.wait_matched(timeout=WORKER_TIMEOUT_S)
+    node.check_single_worker()
+    print(f"[learner] {num_workers} worker(s) connected")
 
 
 class CtrlSender:

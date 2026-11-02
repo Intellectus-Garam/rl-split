@@ -1,12 +1,13 @@
 """Worker (simulation PC): run the IsaacLab env and serve it to the Learner over DDS.
 
-    PYTHONPATH=<path-to-int2DDS>/python .venv/bin/python scripts/worker.py --mode central
+    PYTHONPATH=<path-to-int2DDS>/python .venv/bin/python scripts/worker.py --mode central [--worker_id 1]
 """
 
 from __future__ import annotations
 
 import argparse
 import contextlib
+import secrets
 import sys
 from pathlib import Path
 
@@ -36,6 +37,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="rl-split worker")
     parser.add_argument("--mode", choices=["central", "local"], required=True)
     parser.add_argument("--config", default=str(DEFAULT_CONFIG))
+    parser.add_argument(
+        "--worker_id", type=int, default=0, help="0 .. num_workers-1, unique per Worker; the Learner stacks envs in this order."
+    )
     add_common_train_args(
         parser, agent_default="rsl_rl_cfg_entry_point", agent_help="Agent config entry point.", include_distributed=False
     )
@@ -50,11 +54,14 @@ def main() -> None:
         parser.error(f"--num_envs must come from the config ({cfg.num_envs}); edit {cfg.path} instead")
     args.task = args.task or cfg.env["task"]
     args.num_envs = cfg.num_envs
+    # Random unless given, so Workers do not simulate (and in local mode sample actions) identically.
+    seed = secrets.randbelow(2**31) if args.seed is None else args.seed
+    print(f"[worker] worker {args.worker_id}, seed {seed}")
 
     env_cfg, _ = resolve_task_config(args.task, args.agent)
     with launch_simulation(env_cfg, args), contextlib.ExitStack() as cleanup:
         apply_env_overrides(args, env_cfg)
-        env_cfg.seed = agent["seed"] if args.seed is None else args.seed
+        env_cfg.seed = seed
         env = create_isaaclab_env(args.task, env_cfg, args, convert_marl_to_single_agent=False)
         cleanup.callback(lambda: close_env(env))
         env = RslRlVecEnvWrapper(env, clip_actions=agent["clip_actions"])
@@ -68,16 +75,16 @@ def main() -> None:
         # Imported after the simulation is up, like the IsaacLab entrypoints do with env modules.
         from rl_split.comm.node import Node
 
-        node = Node(cfg.dds, "worker")
+        node = Node(cfg.dds, f"worker{args.worker_id}")
         cleanup.callback(node.close)
         if args.mode == "central":
             from rl_split.central.worker import run
 
-            run(env, node, cfg)
+            run(env, node, cfg, worker_id=args.worker_id)
         else:
             from rl_split.local.worker import run
 
-            run(env, node, cfg, device=agent["device"])
+            run(env, node, cfg, device=agent["device"], worker_id=args.worker_id)
 
 
 if __name__ == "__main__":

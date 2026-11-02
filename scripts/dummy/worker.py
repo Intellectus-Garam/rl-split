@@ -6,7 +6,7 @@ size and order: central streams obs every step and waits for each action; local 
 for weights, streams the iteration's transitions, and waits for the next weights.
 Use it with scripts/dummy/learner.py to test DDS without IsaacLab or training.
 
-    PYTHONPATH=<path-to-int2DDS>/python python scripts/dummy/worker.py --mode central
+    PYTHONPATH=<path-to-int2DDS>/python python scripts/dummy/worker.py --mode central [--worker_id 1]
 """
 
 from __future__ import annotations
@@ -60,22 +60,23 @@ def main() -> None:
     parser.add_argument("--config", default=str(DEFAULT_CONFIG))
     parser.add_argument("--device", default=None, help="Tensor device (default: agent.device from the config).")
     parser.add_argument("--step_time", type=float, default=0.0, help="Seconds to sleep per env step, to mimic the simulation.")
+    parser.add_argument("--worker_id", type=int, default=0, help="0 .. num_workers-1, unique per Worker.")
     args = parser.parse_args()
 
     cfg = Config(args.config)
     device = args.device or cfg.agent()["device"]
     env = DummyEnv(cfg, device, args.step_time)
 
-    node = Node(cfg.dds, "worker")
+    node = Node(cfg.dds, f"worker{args.worker_id}")
     try:
         if args.mode == "central":
             from rl_split.central.worker import run
 
-            run(env, node, cfg)
+            run(env, node, cfg, worker_id=args.worker_id)
         else:
             from rl_split.local.worker import run
 
-            run(env, node, cfg, device=device)
+            run(env, node, cfg, device=device, worker_id=args.worker_id)
     finally:
         node.close()
 

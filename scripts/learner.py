@@ -1,6 +1,6 @@
-"""Learner (training PC): PPO with rsl_rl, data from the Worker over DDS. Does not import IsaacLab.
+"""Learner (training PC): PPO with rsl_rl, data from the Workers over DDS. Does not import IsaacLab.
 
-    PYTHONPATH=<path-to-int2DDS>/python python scripts/learner.py --mode central
+    PYTHONPATH=<path-to-int2DDS>/python python scripts/learner.py --mode central [--num_workers 2]
 """
 
 from __future__ import annotations
@@ -18,10 +18,27 @@ from rl_split import timestamp
 timestamp.install()
 
 import torch
+import yaml
 from rsl_rl.runners import OnPolicyRunner
 
 from rl_split.comm.node import Node
 from rl_split.config import DEFAULT_CONFIG, Config
+
+
+def set_mini_batches(agent: dict, cfg: Config, num_workers: int, override: int | None) -> dict:
+    """Set agent num_mini_batches for num_workers Workers and return what was used (also saved next to the config)."""
+    total_envs = num_workers * cfg.num_envs
+    num = override if override is not None else cfg.scaled_mini_batches(total_envs)
+    agent["algorithm"]["num_mini_batches"] = num
+    batch = total_envs * cfg.num_steps
+    return {
+        "num_workers": num_workers,
+        "num_envs_per_worker": cfg.num_envs,
+        "total_envs": total_envs,
+        "num_mini_batches": num,
+        "num_mini_batches_source": "--num_mini_batches" if override is not None else "scaled from config",
+        "mini_batch_size": batch // num,
+    }
 
 
 def main() -> None:
@@ -30,6 +47,16 @@ def main() -> None:
     parser.add_argument("--config", default=str(DEFAULT_CONFIG))
     parser.add_argument("--device", default=None, help="Training device (default: agent.device from the config).")
     parser.add_argument("--max_iterations", type=int, default=None)
+    parser.add_argument(
+        "--num_workers", type=int, default=1, help="Workers to wait for; they must use --worker_id 0 .. num_workers-1."
+    )
+    parser.add_argument(
+        "--num_mini_batches",
+        type=int,
+        default=None,
+        help="PPO mini-batches per epoch (default: the config's value times num_workers, "
+        "which keeps the config's mini-batch size).",
+    )
     parser.add_argument("--log_root", default="logs/rsl_rl")
     args = parser.parse_args()
 
@@ -43,14 +70,17 @@ def main() -> None:
     log_dir = Path(args.log_root) / agent["experiment_name"] / f"{datetime.now():%Y-%m-%d_%H-%M-%S}_{args.mode}"
     (log_dir / "params").mkdir(parents=True, exist_ok=True)
     shutil.copy(cfg.path, log_dir / "params" / cfg.path.name)
+    run_info = set_mini_batches(agent, cfg, args.num_workers, args.num_mini_batches)
+    (log_dir / "params" / "run.yaml").write_text(yaml.safe_dump(run_info, sort_keys=False))
     print(f"[learner] logging to {log_dir}")
+    print(f"[learner] {run_info}")
 
     node = Node(cfg.dds, "learner")
     try:
         if args.mode == "central":
             from rl_split.central.remote_env import RemoteEnv
 
-            env = RemoteEnv(node, cfg, device)
+            env = RemoteEnv(node, cfg, args.num_workers, device)
             try:
                 env.start(init_at_random_ep_len=agent["init_at_random_ep_len"])
                 agent["device"] = device
@@ -62,7 +92,8 @@ def main() -> None:
         else:
             from rl_split.local.learner import LocalLearnerRunner
 
-            runner = LocalLearnerRunner(node, cfg, log_dir=str(log_dir), device=device)
+            agent["device"] = device
+            runner = LocalLearnerRunner(node, cfg, args.num_workers, agent, log_dir=str(log_dir), device=device)
             runner.learn(num_learning_iterations=num_iterations, init_at_random_ep_len=agent["init_at_random_ep_len"])
     finally:
         node.close()
