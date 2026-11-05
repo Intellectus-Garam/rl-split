@@ -1,0 +1,27 @@
+# TensorBoard on Spark A, outside any group (1-5, 1-7, 1-8, 1-9). Reads the learner's log folder.
+apiVersion: int2connex.io/v1
+kind: PrimitiveTask
+metadata:
+  name: rl-tensorboard
+  labels:
+    domain: rl-split
+spec:
+  executionType: native
+  executable:
+    binary: /home/int2/Workspace/rl-split/.venv/bin/tensorboard
+    args:
+      - --logdir
+      - /home/int2/Workspace/rl-split/logs/rsl_rl
+      - --port
+      - "6006"
+      - --bind_all
+  placement:
+    nodeSelector:
+      em.io/node: promaxgb10-cc43
+  native:
+    scheduling:
+      policy: SCHED_OTHER
+  lifecycle:
+    restartPolicy: always
+    readinessProbe:
+      exec: ["curl", "-sf", "http://localhost:6006"]

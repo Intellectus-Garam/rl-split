@@ -1,0 +1,28 @@
+# Dummy learner that ends normally after 5 iterations (1-4). Same as rl-dummy-learner otherwise.
+apiVersion: int2connex.io/v1
+kind: PrimitiveTask
+metadata:
+  name: rl-dummy-learner-short
+  labels:
+    domain: rl-split
+spec:
+  executionType: native
+  executable:
+    binary: /home/int2/Workspace/rl-split/.venv/bin/python
+    env:
+      PYTHONPATH: /home/int2/Workspace/int2DDS/python
+      PYTHONUNBUFFERED: "1"
+    args:
+      - /home/int2/Workspace/rl-split/scripts/dummy/learner.py
+      - --mode
+      - local
+      - --num_workers
+      - "2"
+      - --max_iterations
+      - "5"
+  placement:
+    nodeSelector:
+      em.io/node: promaxgb10-cc43
+  native:
+    scheduling:
+      policy: SCHED_OTHER

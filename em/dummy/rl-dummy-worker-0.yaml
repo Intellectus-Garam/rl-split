@@ -1,0 +1,26 @@
+# Dummy worker 0 on Spark B. See rl-dummy-learner.yaml for why paths are absolute.
+apiVersion: int2connex.io/v1
+kind: PrimitiveTask
+metadata:
+  name: rl-dummy-worker-0
+  labels:
+    domain: rl-split
+spec:
+  executionType: native
+  executable:
+    binary: /home/int2/Workspace/rl-split/.venv/bin/python
+    env:
+      PYTHONPATH: /home/int2/Workspace/int2DDS/python
+      PYTHONUNBUFFERED: "1"
+    args:
+      - /home/int2/Workspace/rl-split/scripts/dummy/worker.py
+      - --mode
+      - local
+      - --worker_id
+      - "0"
+  placement:
+    nodeSelector:
+      em.io/node: zgx-cde9
+  native:
+    scheduling:
+      policy: SCHED_OTHER
