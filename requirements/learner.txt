@@ -1,14 +1,11 @@
-# Learning PC (Jetson AGX Orin, JetPack 6 / L4T R36.5, Python 3.10)
+# Learning PC (any machine; Jetson AGX Orin uses learner-orin.txt instead)
 #
-# Install order:
-#   1) pip install torch==2.8.0 --index-url https://pypi.jetson-ai-lab.io/jp6/cu126
-#   2) pip install -r requirements/learner.txt
+#   pip install -r requirements/learner.txt
 #
-# Prerequisite: sudo apt install cuda-cupti-12-6  (torch needs libcupti.so.12)
+# The PyPI torch for Linux is a CUDA 13.0 build (needs NVIDIA driver 580+). On an older driver,
+# first install a matching build, e.g. pip install torch --index-url https://download.pytorch.org/whl/cu126
 
-torch==2.8.0          # pin the Jetson build from step 1 so pip does not replace it with a generic wheel
-numpy<2               # Jetson torch 2.8 is built against NumPy 1.x
-ml-dtypes<0.6         # pulled in by onnx (rsl-rl dep); 0.6 requires numpy>=2
+torch
 rsl-rl-lib==5.5.1     # same version as IsaacLab (pyproject.toml)
 pyyaml
 tensorboard           # agent.logger: tensorboard (rsl_rl writes events with torch.utils.tensorboard)

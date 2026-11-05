@@ -3,7 +3,7 @@
 PPO training for IsaacLab Go2 rough terrain (`Isaac-Velocity-Rough-UnitreeGo2`, rsl_rl 5.5.1), split into two processes connected by int2DDS:
 
 - **Worker** (DGX Spark): runs the simulation. There can be several.
-- **Learner** (Jetson Orin): runs PPO. No IsaacLab needed.
+- **Learner** (Jetson Orin or DGX Spark): runs PPO. No IsaacLab needed.
 
 Both sides read the same `configs/go2_rough.yaml`.
 
@@ -45,7 +45,7 @@ export PYTHONPATH=<path-to-int2DDS>/python
 int2dds finds `<path-to-int2DDS>/target/release/libint2dds_ffi.so` on its own (no `INT2DDS_FFI_PATH` needed).
 
 - Worker (Spark): see `requirements/worker.txt` (IsaacLab 3.0.0 with Newton physics; Isaac Sim is not needed).
-- Learner (Orin): see `requirements/learner.txt`.
+- Learner: see `requirements/learner.txt` (Jetson AGX Orin: `requirements/learner-orin.txt`).
 
 ## Run
 
