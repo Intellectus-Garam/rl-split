@@ -2,7 +2,8 @@
 
 Workers are numbered 0 .. num_workers-1 (worker.py --worker_id) and all use env.num_envs.
 Worker: create its topics -> wait for ctrl "start" -> run. ctrl "stop" ends it at any point,
-including before "start" (check_stop / wait_start raise StopRequested).
+including before "start" (check_stop / wait_start raise StopRequested). With worker.py --keep_alive
+it then waits for the next "start" instead, so a new Learner can connect to the same Worker.
 Learner: create every Worker's topics -> wait until all are matched -> send ctrl "start" -> ...
 The learner scripts send "stop" in a finally around everything after the Node is created, so
 it goes out on any exit Python sees (normal end, exception, Ctrl+C, SIGTERM, SIGHUP).

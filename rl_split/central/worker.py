@@ -27,20 +27,28 @@ def _obs_msg(
     )
 
 
-def run(env, node, cfg, worker_id: int) -> None:
-    """Serve the env until ctrl "stop", which may come at any point (also before "start")."""
+def run(env, node, cfg, worker_id: int, keep_alive: bool = False) -> None:
+    """Serve the env until ctrl "stop", which may come at any point (also before "start").
+
+    keep_alive: after "stop", wait for the next "start" instead of returning.
+    """
     ctrl = node.inbox("ctrl")
-    try:
-        _serve(env, node, cfg, worker_id, ctrl)
-    except StopRequested:
-        print("[worker] stopped by the learner")
+    actions_in = node.inbox(per_worker("central_action", worker_id))
+    node.writer(per_worker("central_obs", worker_id))
+    while True:
+        try:
+            _serve(env, node, cfg, worker_id, ctrl, actions_in)
+        except StopRequested:
+            print("[worker] stopped by the learner")
+        if not keep_alive:
+            return
+        # Actions the stopped Learner sent after the last step would be read as the next session's.
+        print(f"[worker] dropped {actions_in.drain()} leftover action(s), waiting for the next learner")
 
 
-def _serve(env, node, cfg, worker_id: int, ctrl) -> None:
+def _serve(env, node, cfg, worker_id: int, ctrl, actions_in) -> None:
     obs_group = cfg.env["obs_group"]
     obs_topic = per_worker("central_obs", worker_id)
-    actions_in = node.inbox(per_worker("central_action", worker_id))
-    node.writer(obs_topic)
 
     args = wait_start(ctrl)
     node.wait_matched(timeout=60.0)

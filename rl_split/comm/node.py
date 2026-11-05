@@ -83,6 +83,13 @@ class Inbox:
             self._pending.extend(s.data for s in self.reader.take() if s.valid_data)
         return self._pending.popleft() if self._pending else None
 
+    def drain(self) -> int:
+        """Discard every sample that has arrived and return how many there were."""
+        count = 0
+        while self.poll() is not None:
+            count += 1
+        return count
+
     def get(self, timeout: float | None = None):
         """Block until a sample arrives. Returns None on timeout."""
         deadline = None if timeout is None else time.monotonic() + timeout

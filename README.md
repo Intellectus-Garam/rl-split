@@ -67,6 +67,7 @@ python3 scripts/learner.py --mode central --num_workers 2
 - Every Worker runs `env.num_envs` envs from the config.
 - A Worker's seed is random (printed at startup) unless `--seed` is given. Give each Worker a different `--seed`.
 - The Learner multiplies `num_mini_batches` by `--num_workers`, so the mini-batch size stays as configured and the extra data becomes extra updates. `learner.py --num_mini_batches` sets it directly instead. The values used are printed at startup and saved to `params/run.yaml` in the log directory.
+- A Worker exits when the Learner stops. With `--keep_alive` it keeps the simulation up and waits for the next Learner.
 - A `--worker_id` used twice stops the Learner with an error. A missing one makes it time out naming the unmatched topic.
 
 Logs and checkpoints go to `logs/rsl_rl/<experiment>/<time>_<mode>/`.

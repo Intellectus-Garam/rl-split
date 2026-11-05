@@ -40,6 +40,11 @@ def main() -> None:
     parser.add_argument(
         "--worker_id", type=int, default=0, help="0 .. num_workers-1, unique per Worker; the Learner stacks envs in this order."
     )
+    parser.add_argument(
+        "--keep_alive",
+        action="store_true",
+        help="After ctrl stop, wait for the next Learner instead of exiting (the simulation stays up).",
+    )
     add_common_train_args(
         parser, agent_default="rsl_rl_cfg_entry_point", agent_help="Agent config entry point.", include_distributed=False
     )
@@ -80,11 +85,11 @@ def main() -> None:
         if args.mode == "central":
             from rl_split.central.worker import run
 
-            run(env, node, cfg, worker_id=args.worker_id)
+            run(env, node, cfg, worker_id=args.worker_id, keep_alive=args.keep_alive)
         else:
             from rl_split.local.worker import run
 
-            run(env, node, cfg, device=agent["device"], worker_id=args.worker_id)
+            run(env, node, cfg, device=agent["device"], worker_id=args.worker_id, keep_alive=args.keep_alive)
 
 
 if __name__ == "__main__":

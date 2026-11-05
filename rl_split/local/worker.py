@@ -86,19 +86,27 @@ def _wait_weights(inbox, ctrl, alg, version: int) -> int:
             raise RuntimeError(f"expected weights {version}, got {w.version}")
 
 
-def run(env, node, cfg, device: str, worker_id: int) -> None:
-    """Collect rollouts until ctrl "stop", which may come at any point (also before "start")."""
+def run(env, node, cfg, device: str, worker_id: int, keep_alive: bool = False) -> None:
+    """Collect rollouts until ctrl "stop", which may come at any point (also before "start").
+
+    keep_alive: after "stop", wait for the next "start" instead of returning.
+    """
     ctrl = node.inbox("ctrl")
-    try:
-        _collect(env, node, cfg, device, worker_id, ctrl)
-    except StopRequested:
-        print("[worker] stopped by the learner")
-
-
-def _collect(env, node, cfg, device: str, worker_id: int, ctrl) -> None:
-    obs_group = cfg.env["obs_group"]
     weights_in = node.inbox("local_weights")
     node.writer(per_worker("local_transition", worker_id))
+    while True:
+        try:
+            _collect(env, node, cfg, device, worker_id, ctrl, weights_in)
+        except StopRequested:
+            print("[worker] stopped by the learner")
+        if not keep_alive:
+            return
+        # The stopped Learner's last weights would otherwise be read as the next session's first version.
+        print(f"[worker] dropped {weights_in.drain()} leftover weight(s), waiting for the next learner")
+
+
+def _collect(env, node, cfg, device: str, worker_id: int, ctrl, weights_in) -> None:
+    obs_group = cfg.env["obs_group"]
 
     args = wait_start(ctrl)
     node.wait_matched(timeout=60.0)
