@@ -12,6 +12,8 @@ spec:
     env:
       PYTHONPATH: /home/int2/Workspace/int2DDS/python
       PYTHONUNBUFFERED: "1"
+      INT2DDS_MAX_MESSAGE_SIZE: "1344"
+      INT2DDS_DATA_FRAG_SIZE: "1344"
     args:
       - /home/int2/Workspace/rl-split/scripts/dummy/learner.py
       - --mode
