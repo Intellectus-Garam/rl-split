@@ -1,0 +1,28 @@
+# Go2 worker 1 (IsaacLab simulation) on Spark B. See rl-go2-learner.yaml for why paths are absolute.
+apiVersion: int2connex.io/v1
+kind: PrimitiveTask
+metadata:
+  name: rl-go2-worker-1
+  labels:
+    domain: rl-split
+spec:
+  executionType: native
+  executable:
+    binary: /home/int2/Workspace/rl-split/.venv/bin/python
+    env:
+      PYTHONPATH: /home/int2/Workspace/int2DDS/python
+      PYTHONUNBUFFERED: "1"
+      INT2DDS_MAX_MESSAGE_SIZE: "1344"
+      INT2DDS_DATA_FRAG_SIZE: "1344"
+    args:
+      - /home/int2/Workspace/rl-split/scripts/worker.py
+      - --mode
+      - local
+      - --worker_id
+      - "1"
+  placement:
+    nodeSelector:
+      em.io/node: zgx-cde9
+  native:
+    scheduling:
+      policy: SCHED_OTHER

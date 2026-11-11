@@ -1,0 +1,31 @@
+# Go2 learner on Spark A, local mode with two workers (2-stage: 1-1, 1-2, 1-3, 1-5).
+# Paths are absolute because the task starts in em-worker's working directory (/).
+apiVersion: int2connex.io/v1
+kind: PrimitiveTask
+metadata:
+  name: rl-go2-learner
+  labels:
+    domain: rl-split
+spec:
+  executionType: native
+  executable:
+    binary: /home/int2/Workspace/rl-split/.venv/bin/python
+    env:
+      PYTHONPATH: /home/int2/Workspace/int2DDS/python
+      PYTHONUNBUFFERED: "1"
+      INT2DDS_MAX_MESSAGE_SIZE: "1344"
+      INT2DDS_DATA_FRAG_SIZE: "1344"
+    args:
+      - /home/int2/Workspace/rl-split/scripts/learner.py
+      - --mode
+      - local
+      - --num_workers
+      - "2"
+      - --log_root
+      - /home/int2/Workspace/rl-split/logs/rsl_rl
+  placement:
+    nodeSelector:
+      em.io/node: promaxgb10-cc43
+  native:
+    scheduling:
+      policy: SCHED_OTHER
