@@ -14,7 +14,7 @@ RUN cargo build --release -p int2dds-ffi
 FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends python3.12 python3.12-venv ca-certificates \
+    && apt-get install -y --no-install-recommends python3.12 python3.12-venv python3.12-dev gcc ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 RUN python3.12 -m venv /opt/venv
