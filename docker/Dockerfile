@@ -32,4 +32,6 @@ COPY --from=int2dds /src/int2DDS/target/release/libint2dds_ffi.so /opt/int2DDS/t
 COPY configs/ /opt/rl-split/configs/
 COPY rl_split/ /opt/rl-split/rl_split/
 COPY scripts/ /opt/rl-split/scripts/
+COPY --chmod=755 docker/entrypoint.sh /usr/local/bin/rl-split-entrypoint
 WORKDIR /opt/rl-split
+ENTRYPOINT ["rl-split-entrypoint"]
