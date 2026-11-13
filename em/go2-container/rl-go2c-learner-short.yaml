@@ -1,0 +1,37 @@
+# Go2 container learner that ends normally after 5 iterations (1-4). Same as rl-go2c-learner otherwise.
+apiVersion: int2connex.io/v1
+kind: PrimitiveTask
+metadata:
+  name: rl-go2c-learner-short
+  labels:
+    domain: rl-split
+spec:
+  executionType: container
+  executable:
+    binary: rl-split:0.1
+    env:
+      INT2DDS_MAX_MESSAGE_SIZE: "1344"
+      INT2DDS_DATA_FRAG_SIZE: "1344"
+      INT2DDS_EXTERNAL_ADDRESS: 192.168.0.2
+      TZ: KST-9
+    args:
+      - learner
+      - --mode
+      - local
+      - --num_workers
+      - "2"
+      - --max_iterations
+      - "5"
+  container:
+    resources:
+      gpu:
+        share: 0.05
+    kubernetes:
+      nodeSelector:
+        kubernetes.io/hostname: promaxgb10-cc43
+      hostNetwork: true
+    volumes:
+      - name: logs
+        hostPath: /var/lib/em/data/rl-split/logs
+        mountPath: /opt/rl-split/logs
+        readOnly: false

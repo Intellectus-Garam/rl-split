@@ -1,0 +1,18 @@
+# Same as rl-go2c-group with the 5-iteration learner (1-4: does a normal end count as done?).
+apiVersion: int2connex.io/v1
+kind: TaskGroup
+metadata:
+  name: rl-go2c-group-short
+spec:
+  lifecycle:
+    restartPolicy: all-or-nothing
+    shutdownOrder: reverse
+  executionStrategy:
+    mode: parallel
+  tasks:
+    - name: learner
+      taskRef: rl-go2c-learner-short
+    - name: worker-0
+      taskRef: rl-go2c-worker-0
+    - name: worker-1
+      taskRef: rl-go2c-worker-1
