@@ -1,0 +1,34 @@
+# Go2 learner on Spark A as a container (3-stage: 1-1, 1-2). Image: docker/Dockerfile.
+# Logs go to /opt/rl-split/logs, mounted from the host; create the host directory first.
+apiVersion: int2connex.io/v1
+kind: PrimitiveTask
+metadata:
+  name: rl-go2c-learner
+  labels:
+    domain: rl-split
+spec:
+  executionType: container
+  executable:
+    binary: rl-split:0.1
+    env:
+      INT2DDS_MAX_MESSAGE_SIZE: "1344"
+      INT2DDS_DATA_FRAG_SIZE: "1344"
+      INT2DDS_EXTERNAL_ADDRESS: 192.168.0.2
+    args:
+      - learner
+      - --mode
+      - local
+      - --num_workers
+      - "2"
+  container:
+    resources:
+      gpu:
+        share: 1.0
+    kubernetes:
+      nodeSelector:
+        kubernetes.io/hostname: promaxgb10-cc43
+      hostNetwork: true
+    volumes:
+      - name: logs
+        hostPath: /var/lib/em/data/rl-split/logs
+        mountPath: /opt/rl-split/logs

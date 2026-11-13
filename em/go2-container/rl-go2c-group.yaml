@@ -1,0 +1,18 @@
+# Container learner and both workers as one unit: any member ending restarts all three (1-1, 1-2).
+apiVersion: int2connex.io/v1
+kind: TaskGroup
+metadata:
+  name: rl-go2c-group
+spec:
+  lifecycle:
+    restartPolicy: all-or-nothing
+    shutdownOrder: reverse
+  executionStrategy:
+    mode: parallel
+  tasks:
+    - name: learner
+      taskRef: rl-go2c-learner
+    - name: worker-0
+      taskRef: rl-go2c-worker-0
+    - name: worker-1
+      taskRef: rl-go2c-worker-1
