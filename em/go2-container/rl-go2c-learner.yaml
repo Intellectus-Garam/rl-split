@@ -23,7 +23,7 @@ spec:
   container:
     resources:
       gpu:
-        share: 1.0
+        share: 0.05
     kubernetes:
       nodeSelector:
         kubernetes.io/hostname: promaxgb10-cc43

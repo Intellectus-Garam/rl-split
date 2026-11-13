@@ -1,4 +1,4 @@
-# Go2 worker 0 on Spark B as a container. Both workers share the GPU, half each.
+# Go2 worker 0 on Spark B as a container.
 apiVersion: int2connex.io/v1
 kind: PrimitiveTask
 metadata:
@@ -22,7 +22,7 @@ spec:
   container:
     resources:
       gpu:
-        share: 0.5
+        share: 0.05
     kubernetes:
       nodeSelector:
         kubernetes.io/hostname: zgx-cde9
