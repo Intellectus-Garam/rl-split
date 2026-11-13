@@ -1,0 +1,18 @@
+# Same members as rl-go2c-group, but only the member that ended is restarted (1-6).
+apiVersion: int2connex.io/v1
+kind: TaskGroup
+metadata:
+  name: rl-go2c-group-individual
+spec:
+  lifecycle:
+    restartPolicy: individual
+    shutdownOrder: reverse
+  executionStrategy:
+    mode: parallel
+  tasks:
+    - name: learner
+      taskRef: rl-go2c-learner
+    - name: worker-0
+      taskRef: rl-go2c-worker-0
+    - name: worker-1
+      taskRef: rl-go2c-worker-1
