@@ -13,6 +13,7 @@ spec:
       INT2DDS_MAX_MESSAGE_SIZE: "1344"
       INT2DDS_DATA_FRAG_SIZE: "1344"
       INT2DDS_EXTERNAL_ADDRESS: 192.168.0.210
+      TZ: KST-9
     args:
       - worker
       - --mode
